@@ -171,6 +171,7 @@ impl RpcClient {
 
             // Note that in status display for music, the large image text is not
             // shown as a tooltip on the large image, rather, under the details
+            // text instead. Small text *sometimes* just doesn't show at all.
             // text instead. Small text seems to only show sometimes.
 
             let assets = assets.large_image(large_image).large_text(match playing {
