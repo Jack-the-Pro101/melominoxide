@@ -165,16 +165,21 @@ impl RPCState {
         // );
 
         let fn_add_assets = |assets: ActivityAssets| -> ActivityAssets {
-            if small_image != "" {
+            let dimension_annotation = dimension_to_string(&dimension);
+
+            // Note that in status display for music, the large image text is not
+            // shown as a tooltip on the large image, rather, under the details
+            // text instead. Small text just doesn't show at all for some reason.
+
+            let assets = assets.large_image(large_image).large_text(match playing {
+                true => dimension_annotation,
+                false => "Paused",
+            });
+
+            if small_image.is_empty() {
                 assets
-                    .large_image(large_image)
-                    .large_text(dimension_to_string(&dimension))
-                    .small_image(small_image)
-                    .small_text("From Minecraft")
             } else {
-                assets
-                    .large_image(large_image)
-                    .large_text(dimension_to_string(&dimension))
+                assets.small_image(small_image).small_text("From Minecraft")
             }
         };
 
@@ -197,7 +202,7 @@ impl RPCState {
                         .activity_type(ActivityType::Listening)
                         .status_display(DisplayType::State)
                         .details(&format!("{} - {}", artist, title))
-                        .state("Paused")
+                        .state(album)
                         .assets(fn_add_assets)
                 })
                 .unwrap();
