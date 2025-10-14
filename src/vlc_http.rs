@@ -1,6 +1,6 @@
-use reqwest::StatusCode;
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use std::process::Command;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,7 @@ pub struct Meta {
 pub struct VlcHttpClient {
     client: Client,
     host: String,
-    port: u16,
+    port: String,
     password: String,
 }
 
@@ -47,29 +47,67 @@ impl VlcHttpClient {
         VlcHttpClient {
             client,
             host: host.to_string(),
-            port,
+            port: port.to_string(),
             password: password.to_string(),
         }
     }
 
+    pub fn spawn_vlc_if_needed(
+        &self,
+        vlc_path: &str,
+        playlist_path: &str,
+    ) -> Result<(), Option<i32>> {
+        if self.check_vlc_running() {
+            println!("VLC already running, continuing...");
+            return Ok(());
+        }
+
+        println!("VLC not running, spawning...");
+
+        // Start VLC with HTTP interface enabled. Non-blocking spawn.
+        let args = [
+            "--extraintf",
+            "http",
+            "--http-host",
+            self.host.as_str(),
+            "--http-port",
+            self.port.as_str(),
+            "--http-password",
+            self.password.as_str(),
+            "--intf",
+            "qt",
+            "--random",
+            "--loop",
+            playlist_path,
+        ];
+
+        match Command::new(vlc_path).args(&args).spawn() {
+            Ok(child) => {
+                println!("Spawned VLC (pid={})", child.id());
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to spawn VLC: {}", e);
+                Err(Some(e.raw_os_error().unwrap_or(-1)))
+            }
+        }
+    }
+
+    pub fn check_vlc_running(&self) -> bool {
+        let response = self.query_status();
+
+        match response {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
     pub fn wait_until_ready(&self, timeout: Duration) -> bool {
-        let url = format!("http://{}:{}/requests/status.json", self.host, self.port);
         let start = Instant::now();
 
         while start.elapsed() < timeout {
-            let resp = self
-                .client
-                .get(&url)
-                .basic_auth("", Some(self.password.clone()))
-                .send();
-
-            match resp {
-                Ok(r) => {
-                    if r.status() == StatusCode::OK {
-                        return true;
-                    }
-                }
-                Err(_) => {}
+            if self.check_vlc_running() {
+                return true;
             }
 
             sleep(Duration::from_millis(250));
@@ -80,13 +118,13 @@ impl VlcHttpClient {
 
     pub fn query_status(&self) -> Result<VlcState, Box<dyn std::error::Error>> {
         let url = format!("http://{}:{}/requests/status.json", self.host, self.port);
-        let resp = self
+        let response = self
             .client
             .get(&url)
             .basic_auth("", Some(self.password.clone()))
             .send()?;
 
-        let state: VlcState = resp.json()?;
+        let state: VlcState = response.json()?;
         Ok(state)
     }
 }

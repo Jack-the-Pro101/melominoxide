@@ -23,17 +23,6 @@ const ASSET_ALBUM_VOL_TRAILS: &str = "vol_trails";
 const ASSET_ALBUM_VOL_TRICKY: &str = "vol_tricky";
 const ASSET_ALBUM_VOL_CHASE: &str = "vol_chase";
 
-pub fn start() -> Client {
-    let mut connection = Client::new(CLIENT_ID);
-
-    connection.start();
-    connection
-        .block_until_event(discord_presence::Event::Ready)
-        .ok();
-
-    connection
-}
-
 /// Map album to its Discord Rich Presence asset names.
 /// WARNING: `small_image` can be "" (empty) if no small image is desired,
 /// CHECK FOR THIS BEFORE USING OR DISCORD PRESENCE WILL HANG!
@@ -77,22 +66,35 @@ pub fn epoch_secs() -> u64 {
         .as_secs()
 }
 
-pub struct RPCState {
+pub struct RpcClient {
     active_media: String,
     last_start_time: u64,
     last_end_time: u64,
+    client: Client,
 }
 
-impl RPCState {
+impl RpcClient {
+    pub fn blocking_start(&mut self) {
+        println!("Starting RPC client");
+
+        self.client.start();
+        self.client
+            .block_until_event(discord_presence::Event::Ready)
+            .ok();
+
+        println!("Started RPC client");
+    }
+
     pub fn new() -> Self {
-        RPCState {
+        RpcClient {
             active_media: String::new(),
             last_start_time: 0,
             last_end_time: 0,
+            client: Client::new(CLIENT_ID),
         }
     }
 
-    pub fn update_rpc(&mut self, client: &mut Client, state: &crate::vlc_http::VlcState) {
+    pub fn update_rpc(&mut self, state: &crate::vlc_http::VlcState) {
         // Extract metadata
         let meta = state
             .information
@@ -169,7 +171,7 @@ impl RPCState {
 
             // Note that in status display for music, the large image text is not
             // shown as a tooltip on the large image, rather, under the details
-            // text instead. Small text just doesn't show at all for some reason.
+            // text instead. Small text seems to only show sometimes.
 
             let assets = assets.large_image(large_image).large_text(match playing {
                 true => dimension_annotation,
@@ -184,7 +186,8 @@ impl RPCState {
         };
 
         if playing {
-            client
+            // println!("Setting playing activity");
+            self.client
                 .set_activity(|activity| {
                     activity
                         .activity_type(ActivityType::Listening)
@@ -195,8 +198,9 @@ impl RPCState {
                         .assets(fn_add_assets)
                 })
                 .unwrap();
+            // println!("Finished setting activity");
         } else {
-            client
+            self.client
                 .set_activity(|activity| {
                     activity
                         .activity_type(ActivityType::Listening)
