@@ -1,14 +1,13 @@
-use std::time::SystemTime;
-
-use discord_presence::{
-    Client,
-    models::{ActivityAssets, ActivityType, DisplayType},
-};
-
 use crate::songs;
 
+use discord_rich_presence::{
+    DiscordIpc, DiscordIpcClient,
+    activity::{self, Activity, Assets, StatusDisplayType},
+};
+use std::time::SystemTime;
+
 // Discord application ID
-const CLIENT_ID: u64 = 1350909681681436692;
+const CLIENT_ID: &str = "1350909681681436692";
 
 // My own assets
 const ASSET_MINECRAFT: &str = "mclogo";
@@ -59,19 +58,19 @@ fn dimension_to_string(dimension: &songs::Dimension) -> &'static str {
     }
 }
 
-pub fn epoch_ms() -> u64 {
+pub fn epoch_ms() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u64
+        .as_millis() as i64
 }
 
 pub struct RpcClient {
     active_media: String,
     last_playing: bool,
-    last_start_time: u64,
-    last_end_time: u64,
-    client: Client,
+    last_start_time: i64,
+    last_end_time: i64,
+    client: DiscordIpcClient,
     // connected: bool,
 }
 
@@ -79,16 +78,7 @@ impl RpcClient {
     pub fn blocking_start(&mut self) {
         println!("Starting RPC client");
 
-        self.client.start();
-        self.client
-            .block_until_event(discord_presence::Event::Ready)
-            .ok();
-
-        // self.client
-        //     .on_event(discord_presence::Event::Disconnected, |e| {
-        //         println!("Discord RPC disconnected");
-        //         self.connected = false;
-        //     });
+        self.client.connect().unwrap();
 
         println!("Started RPC client");
     }
@@ -99,7 +89,7 @@ impl RpcClient {
             last_playing: false,
             last_start_time: 0,
             last_end_time: 0,
-            client: Client::new(CLIENT_ID),
+            client: DiscordIpcClient::new(CLIENT_ID),
             // connected: false,
         }
     }
@@ -133,7 +123,7 @@ impl RpcClient {
         if song_changed {
             // Media changed
             self.last_start_time = epoch_ms();
-            self.last_end_time = self.last_start_time + state.length.unwrap_or(0) as u64 * 1000;
+            self.last_end_time = self.last_start_time + state.length.unwrap_or(0) as i64 * 1000;
 
             // client.clear_activity().ok(); // I don't believe this is needed
 
@@ -154,14 +144,8 @@ impl RpcClient {
             // later, so both times should be moved forwards (by subtracting
             // seek_delta, which is negative in this case, effectively adding it).
 
-            self.last_start_time = self
-                .last_start_time
-                .checked_sub_signed(seek_delta.round() as i64)
-                .unwrap_or_default();
-            self.last_end_time = self
-                .last_end_time
-                .checked_sub_signed(seek_delta.round() as i64)
-                .unwrap_or_default();
+            self.last_start_time -= seek_delta.round() as i64;
+            self.last_end_time -= seek_delta.round() as i64;
         } else {
             if !song_changed && (self.last_playing == playing) {
                 // Optimization to avoid updating Discord RPC if nothing changed
@@ -183,17 +167,18 @@ impl RpcClient {
         //     artist, title, album
         // );
 
-        let fn_add_assets = |assets: ActivityAssets| -> ActivityAssets {
-            let dimension_annotation = dimension_to_string(&dimension);
+        let dimension_annotation = dimension_to_string(&dimension);
 
-            // Note that in status display for music, the large image text is not
-            // shown as a tooltip on the large image, rather, under the details
-            // text instead. Small text seems to only show sometimes.
+        // Note that in status display for music, the large image text is
+        // also shown under the details line
 
-            let assets = assets.large_image(large_image).large_text(match playing {
-                true => dimension_annotation,
-                false => "Paused",
-            });
+        let get_assets = || -> Assets {
+            let assets = Assets::new()
+                .large_image(large_image)
+                .large_text(match playing {
+                    true => dimension_annotation,
+                    false => "Paused",
+                });
 
             if small_image.is_empty() {
                 assets
@@ -202,31 +187,26 @@ impl RpcClient {
             }
         };
 
-        if playing {
-            // println!("Setting playing activity");
-            self.client
-                .set_activity(|activity| {
-                    activity
-                        .activity_type(ActivityType::Listening)
-                        .status_display(DisplayType::Details)
-                        .details(&format!("{} - {}", artist, title))
-                        .state(album)
-                        .timestamps(|f| f.start(self.last_start_time).end(self.last_end_time))
-                        .assets(fn_add_assets)
-                })
-                .unwrap();
-            // println!("Finished setting activity");
-        } else {
-            self.client
-                .set_activity(|activity| {
-                    activity
-                        .activity_type(ActivityType::Listening)
-                        .status_display(DisplayType::Details)
-                        .details(&format!("{} - {}", artist, title))
-                        .state(album)
-                        .assets(fn_add_assets)
-                })
-                .unwrap();
-        }
+        let name = format!("{} - {}", artist, title);
+
+        let mut activity = Activity::new()
+            .activity_type(activity::ActivityType::Listening)
+            .status_display_type(StatusDisplayType::Details)
+            .details(name.as_str())
+            .state(&album)
+            .assets(get_assets());
+
+        activity = match playing {
+            true => activity.timestamps(
+                activity::Timestamps::new()
+                    .start(self.last_start_time)
+                    .end(self.last_end_time),
+            ),
+            false => activity,
+        };
+
+        // println!("Setting playing activity");
+        self.client.set_activity(activity).unwrap();
+        // println!("Finished setting activity");
     }
 }
