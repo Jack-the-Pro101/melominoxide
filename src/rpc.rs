@@ -59,18 +59,20 @@ fn dimension_to_string(dimension: &songs::Dimension) -> &'static str {
     }
 }
 
-pub fn epoch_secs() -> u64 {
+pub fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
-        .as_secs()
+        .as_millis() as u64
 }
 
 pub struct RpcClient {
     active_media: String,
+    last_playing: bool,
     last_start_time: u64,
     last_end_time: u64,
     client: Client,
+    // connected: bool,
 }
 
 impl RpcClient {
@@ -82,15 +84,23 @@ impl RpcClient {
             .block_until_event(discord_presence::Event::Ready)
             .ok();
 
+        // self.client
+        //     .on_event(discord_presence::Event::Disconnected, |e| {
+        //         println!("Discord RPC disconnected");
+        //         self.connected = false;
+        //     });
+
         println!("Started RPC client");
     }
 
     pub fn new() -> Self {
         RpcClient {
             active_media: String::new(),
+            last_playing: false,
             last_start_time: 0,
             last_end_time: 0,
             client: Client::new(CLIENT_ID),
+            // connected: false,
         }
     }
 
@@ -113,15 +123,17 @@ impl RpcClient {
             .unwrap_or_else(|| "Album".to_string());
 
         let filename = meta.and_then(|m| m.filename.clone()).unwrap_or_default();
-        // VLC provides a `time` field, but it's only updated every second,
-        // so we use the position field which has many decimals for better accuracy.
-        let seek = state.position.unwrap_or(0.0) * state.length.unwrap_or(0) as f64;
+        let song_changed = self.active_media != filename;
+        self.last_playing = song_changed;
+        // VLC provides a `time` field, but it's only accurate to the second, so
+        // we use the position field % which has many decimals for better accuracy.
+        let seek = state.position.unwrap_or(0.0) * state.length.unwrap_or(0) as f64 * 1000.0;
         let playing = state.state.as_deref() == Some("playing");
 
-        if self.active_media != filename {
+        if song_changed {
             // Media changed
-            self.last_start_time = epoch_secs();
-            self.last_end_time = self.last_start_time + state.length.unwrap_or(0) as u64;
+            self.last_start_time = epoch_ms();
+            self.last_end_time = self.last_start_time + state.length.unwrap_or(0) as u64 * 1000;
 
             // client.clear_activity().ok(); // I don't believe this is needed
 
@@ -129,9 +141,9 @@ impl RpcClient {
         }
 
         // Seek delta is [actual seek] - [expected seek (calculated from [now] - [last_start_time])]
-        let seek_delta = seek - (epoch_secs() as i64 - self.last_start_time as i64) as f64;
+        let seek_delta = seek - (epoch_ms() as i64 - self.last_start_time as i64) as f64;
 
-        if seek_delta.abs() > 1.5 {
+        if seek_delta.abs() > 1000.0 {
             // Significant seek detected, update start and end time
 
             // Logic here is based on: since the times are absolute,
@@ -150,6 +162,11 @@ impl RpcClient {
                 .last_end_time
                 .checked_sub_signed(seek_delta.round() as i64)
                 .unwrap_or_default();
+        } else {
+            if !song_changed && (self.last_playing == playing) {
+                // Optimization to avoid updating Discord RPC if nothing changed
+                return;
+            }
         }
 
         let dimension = songs::song_to_dimension(
@@ -191,7 +208,7 @@ impl RpcClient {
                 .set_activity(|activity| {
                     activity
                         .activity_type(ActivityType::Listening)
-                        .status_display(DisplayType::State)
+                        .status_display(DisplayType::Details)
                         .details(&format!("{} - {}", artist, title))
                         .state(album)
                         .timestamps(|f| f.start(self.last_start_time).end(self.last_end_time))
@@ -204,7 +221,7 @@ impl RpcClient {
                 .set_activity(|activity| {
                     activity
                         .activity_type(ActivityType::Listening)
-                        .status_display(DisplayType::State)
+                        .status_display(DisplayType::Details)
                         .details(&format!("{} - {}", artist, title))
                         .state(album)
                         .assets(fn_add_assets)
