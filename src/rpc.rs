@@ -114,7 +114,6 @@ impl RpcClient {
 
         let filename = meta.and_then(|m| m.filename.clone()).unwrap_or_default();
         let song_changed = self.active_media != filename;
-        self.last_playing = song_changed;
         // VLC provides a `time` field, but it's only accurate to the second, so
         // we use the position field % which has many decimals for better accuracy.
         let seek = state.position.unwrap_or(0.0) * state.length.unwrap_or(0) as f64 * 1000.0;
@@ -133,7 +132,7 @@ impl RpcClient {
         // Seek delta is [actual seek] - [expected seek (calculated from [now] - [last_start_time])]
         let seek_delta = seek - (epoch_ms() as i64 - self.last_start_time as i64) as f64;
 
-        if seek_delta.abs() > 1000.0 {
+        if playing && seek_delta.abs() > 500.0 {
             // Significant seek detected, update start and end time
 
             // Logic here is based on: since the times are absolute,
@@ -152,6 +151,7 @@ impl RpcClient {
                 return;
             }
         }
+        self.last_playing = playing;
 
         let dimension = songs::song_to_dimension(
             std::path::Path::new(&filename)
