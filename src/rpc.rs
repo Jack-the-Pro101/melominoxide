@@ -113,7 +113,7 @@ impl RpcClient {
                 self.connected = true;
             }
             Err(_) => {
-                if (self.connected) {
+                if self.connected {
                     println!("Lost connection to Discord, will continuously retry");
                 }
 
