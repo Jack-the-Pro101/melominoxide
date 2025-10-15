@@ -1,4 +1,4 @@
-use crate::songs;
+use crate::{songs, vlc_http};
 
 use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
@@ -65,36 +65,76 @@ pub fn epoch_ms() -> i64 {
         .as_millis() as i64
 }
 
-pub struct RpcClient {
+struct VlcCache {
     active_media: String,
     last_playing: bool,
     last_start_time: i64,
     last_end_time: i64,
+}
+
+pub struct RpcClient {
+    vlc_cache: VlcCache,
     client: DiscordIpcClient,
-    // connected: bool,
+    connected: bool,
 }
 
 impl RpcClient {
     pub fn blocking_start(&mut self) {
         println!("Starting RPC client");
 
-        self.client.connect().unwrap();
-
-        println!("Started RPC client");
+        match self.client.connect().ok() {
+            Some(()) => {
+                self.connected = true;
+                println!("Started RPC client");
+            }
+            None => {
+                self.connected = false;
+                println!("Failed to connect to Discord, will continuously retry");
+            }
+        }
     }
 
     pub fn new() -> Self {
         RpcClient {
-            active_media: String::new(),
-            last_playing: false,
-            last_start_time: 0,
-            last_end_time: 0,
+            vlc_cache: VlcCache {
+                active_media: String::new(),
+                last_playing: false,
+                last_start_time: 0,
+                last_end_time: 0,
+            },
             client: DiscordIpcClient::new(CLIENT_ID),
-            // connected: false,
+            connected: false,
         }
     }
 
-    pub fn update_rpc(&mut self, state: &crate::vlc_http::VlcState) {
+    pub fn update_connected(&mut self, attempt_reconnect: bool) {
+        match self.client.send(serde_json::Value::Null, 1) {
+            Ok(_) => {
+                self.connected = true;
+            }
+            Err(_) => {
+                if (self.connected) {
+                    println!("Lost connection to Discord, will continuously retry");
+                }
+
+                self.connected = false;
+                if attempt_reconnect {
+                    self.connected = match self.client.reconnect().ok() {
+                        Some(()) => true,
+                        None => false,
+                    };
+
+                    if self.connected {
+                        println!("Reconnected to Discord");
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn update_rpc(&mut self, state: &vlc_http::VlcState) {
+        self.update_connected(true);
+
         // Extract metadata
         let meta = state
             .information
@@ -104,35 +144,34 @@ impl RpcClient {
 
         let title = meta
             .and_then(|m| m.title.clone())
-            .unwrap_or_else(|| "Unknown Title".to_string());
+            .unwrap_or("Unknown Title".to_string());
         let artist = meta
             .and_then(|m| m.artist.clone())
-            .unwrap_or_else(|| "Artist".to_string());
+            .unwrap_or("Artist".to_string());
         let album = meta
             .and_then(|m| m.album.clone())
-            .unwrap_or_else(|| "Album".to_string());
+            .unwrap_or("Album".to_string());
 
         let filename = meta.and_then(|m| m.filename.clone()).unwrap_or_default();
-        let song_changed = self.active_media != filename;
+        let song_changed = self.vlc_cache.active_media != filename;
         // VLC provides a `time` field, but it's only accurate to the second, so
         // we use the position field % which has many decimals for better accuracy.
         let seek = state.position.unwrap_or(0.0) * state.length.unwrap_or(0) as f64 * 1000.0;
+        // Seek delta is [actual seek] - [expected seek (calculated from [now] - [last_start_time])]
+        let seek_delta = seek - (epoch_ms() - self.vlc_cache.last_start_time) as f64;
         let playing = state.state.as_deref() == Some("playing");
 
         if song_changed {
-            // Media changed
-            self.last_start_time = epoch_ms();
-            self.last_end_time = self.last_start_time + state.length.unwrap_or(0) as i64 * 1000;
+            self.vlc_cache.last_start_time = epoch_ms();
+            self.vlc_cache.last_end_time =
+                self.vlc_cache.last_start_time + state.length.unwrap_or(0) as i64 * 1000;
 
             // client.clear_activity().ok(); // I don't believe this is needed
 
-            self.active_media = filename.clone();
+            self.vlc_cache.active_media = filename.clone();
         }
 
-        // Seek delta is [actual seek] - [expected seek (calculated from [now] - [last_start_time])]
-        let seek_delta = seek - (epoch_ms() as i64 - self.last_start_time as i64) as f64;
-
-        if playing && seek_delta.abs() > 500.0 {
+        if playing && seek_delta.abs() > 670.0 {
             // Significant seek detected, update start and end time
 
             // Logic here is based on: since the times are absolute,
@@ -143,15 +182,20 @@ impl RpcClient {
             // later, so both times should be moved forwards (by subtracting
             // seek_delta, which is negative in this case, effectively adding it).
 
-            self.last_start_time -= seek_delta.round() as i64;
-            self.last_end_time -= seek_delta.round() as i64;
+            self.vlc_cache.last_start_time -= seek_delta.round() as i64;
+            self.vlc_cache.last_end_time -= seek_delta.round() as i64;
         } else {
-            if !song_changed && (self.last_playing == playing) {
+            if !song_changed && (self.vlc_cache.last_playing == playing) {
                 // Optimization to avoid updating Discord RPC if nothing changed
                 return;
             }
         }
-        self.last_playing = playing;
+        self.vlc_cache.last_playing = playing;
+
+        if !self.connected {
+            // Do not proceed to activity related calls
+            return;
+        }
 
         let dimension = songs::song_to_dimension(
             std::path::Path::new(&filename)
@@ -199,14 +243,12 @@ impl RpcClient {
         activity = match playing {
             true => activity.timestamps(
                 activity::Timestamps::new()
-                    .start(self.last_start_time)
-                    .end(self.last_end_time),
+                    .start(self.vlc_cache.last_start_time)
+                    .end(self.vlc_cache.last_end_time),
             ),
             false => activity,
         };
 
-        // println!("Setting playing activity");
-        self.client.set_activity(activity).unwrap();
-        // println!("Finished setting activity");
+        self.client.set_activity(activity).ok();
     }
 }
