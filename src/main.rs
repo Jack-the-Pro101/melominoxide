@@ -42,6 +42,9 @@ fn main() {
             }
         }
 
-        sleep(Duration::from_millis(750));
+        // VLC updates no faster than 1s, so checking
+        // more often can actually cause issues for
+        // duration calculations in the Discord RPC
+        sleep(Duration::from_secs(1));
     }
 }
