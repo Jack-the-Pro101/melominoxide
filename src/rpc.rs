@@ -13,29 +13,34 @@ const CLIENT_ID: &str = "1350909681681436692";
 const ASSET_MINECRAFT: &str = "mclogo";
 
 // Soundtrack assets
-const ASSET_ALBUM_VOL_ALPHA: &str = "vol_alpha";
-const ASSET_ALBUM_VOL_BETA: &str = "vol_beta";
-const ASSET_ALBUM_VOL_NETHER: &str = "vol_nether";
-const ASSET_ALBUM_VOL_CAVES: &str = "vol_caves";
-const ASSET_ALBUM_VOL_WILD: &str = "vol_wild";
-const ASSET_ALBUM_VOL_TRAILS: &str = "vol_trails";
-const ASSET_ALBUM_VOL_TRICKY: &str = "vol_tricky";
-const ASSET_ALBUM_VOL_CHASE: &str = "vol_chase";
+const ASSET_ALBUM_ALPHA: &str = "vol_alpha";
+const ASSET_ALBUM_BETA: &str = "vol_beta";
+const ASSET_ALBUM_AQUATIC: &str = "vol_c418_aquatic";
+const ASSET_ALBUM_NETHER: &str = "vol_nether";
+const ASSET_ALBUM_CAVES: &str = "vol_caves";
+const ASSET_ALBUM_WILD: &str = "vol_wild";
+const ASSET_ALBUM_TRAILS: &str = "vol_trails";
+const ASSET_ALBUM_TRICKY: &str = "vol_tricky";
+const ASSET_ALBUM_CHASE: &str = "vol_chase";
 
 /// Map album to its Discord Rich Presence asset names.
 /// WARNING: `small_image` can be "" (empty) if no small image is desired,
 /// CHECK FOR THIS BEFORE USING OR DISCORD PRESENCE WILL HANG!
 /// Returns (large_image, small_image)
 fn album_to_asset(album: &String) -> (&'static str, &'static str) {
+    if is_aquatic_album(album) {
+        return (ASSET_ALBUM_AQUATIC, ASSET_MINECRAFT);
+    }
+
     let large_image = match album.as_str() {
-        "Minecraft - Volume Alpha" => ASSET_ALBUM_VOL_ALPHA,
-        "Minecraft - Volume Beta" => ASSET_ALBUM_VOL_BETA,
-        "Minecraft: Nether Update (Original Game Soundtrack)" => ASSET_ALBUM_VOL_NETHER,
-        "Minecraft: Caves & Cliffs (Original Game Soundtrack)" => ASSET_ALBUM_VOL_CAVES,
-        "Minecraft: The Wild Update (Original Game Soundtrack)" => ASSET_ALBUM_VOL_WILD,
-        "Minecraft: Trails & Tales (Original Game Soundtrack)" => ASSET_ALBUM_VOL_TRAILS,
-        "Minecraft: Tricky Trials (Original Game Soundtrack)" => ASSET_ALBUM_VOL_TRICKY,
-        "Minecraft: Chase the Skies (Original Game Soundtrack)" => ASSET_ALBUM_VOL_CHASE,
+        "Minecraft - Volume Alpha" => ASSET_ALBUM_ALPHA,
+        "Minecraft - Volume Beta" => ASSET_ALBUM_BETA,
+        "Minecraft: Nether Update (Original Game Soundtrack)" => ASSET_ALBUM_NETHER,
+        "Minecraft: Caves & Cliffs (Original Game Soundtrack)" => ASSET_ALBUM_CAVES,
+        "Minecraft: The Wild Update (Original Game Soundtrack)" => ASSET_ALBUM_WILD,
+        "Minecraft: Trails & Tales (Original Game Soundtrack)" => ASSET_ALBUM_TRAILS,
+        "Minecraft: Tricky Trials (Original Game Soundtrack)" => ASSET_ALBUM_TRICKY,
+        "Minecraft: Chase the Skies (Original Game Soundtrack)" => ASSET_ALBUM_CHASE,
         _ => ASSET_MINECRAFT,
     };
 
@@ -48,13 +53,27 @@ fn album_to_asset(album: &String) -> (&'static str, &'static str) {
     )
 }
 
+fn is_aquatic_album(album: &String) -> bool {
+    match album.as_str() {
+        "Axolotl" | "Dragon Fish" | "Shuniji" => true,
+        _ => false,
+    }
+}
+
+fn special_case_aquatic(f: &String) -> String {
+    match is_aquatic_album(f) {
+        true => "Minecraft: Update Aquatic *(Not a real album)*".to_string(),
+        false => f.clone(),
+    }
+}
+
 fn dimension_to_string(dimension: &songs::Dimension) -> &'static str {
     match dimension {
-        songs::Dimension::Overworld => "Overworld Music",
-        songs::Dimension::Nether => "Nether Music",
-        songs::Dimension::End => "End Music",
-        songs::Dimension::Disc => "Minecraft Music Disc",
-        songs::Dimension::Minecraft => "Minecraft Music",
+        songs::Dimension::Overworld => "Overworld music",
+        songs::Dimension::Nether => "Nether music",
+        songs::Dimension::End => "End music",
+        songs::Dimension::Disc => "Music disc",
+        songs::Dimension::Minecraft => "Minecraft music",
     }
 }
 
@@ -119,7 +138,7 @@ impl RpcClient {
 
                 self.connected = false;
                 if attempt_reconnect {
-                    self.connected = match self.client.reconnect().ok() {
+                    self.connected = match self.client.connect().ok() {
                         Some(()) => true,
                         None => false,
                     };
@@ -130,6 +149,13 @@ impl RpcClient {
                 }
             }
         }
+    }
+
+    pub fn disconnect(&mut self) {
+        if self.connected {
+            self.client.close().ok();
+        }
+        self.connected = false;
     }
 
     pub fn update_rpc(&mut self, state: &vlc_http::VlcState) {
@@ -148,9 +174,10 @@ impl RpcClient {
         let artist = meta
             .and_then(|m| m.artist.clone())
             .unwrap_or("Artist".to_string());
-        let album = meta
+        let album_raw = meta
             .and_then(|m| m.album.clone())
             .unwrap_or("Album".to_string());
+        let album = special_case_aquatic(&album_raw);
 
         let filename = meta.and_then(|m| m.filename.clone()).unwrap_or_default();
         let song_changed = self.vlc_cache.active_media != filename;
@@ -204,7 +231,7 @@ impl RpcClient {
                 .unwrap_or_default(),
         );
 
-        let (large_image, small_image) = album_to_asset(&album);
+        let (large_image, small_image) = album_to_asset(&album_raw);
 
         // println!(
         //     "Updating Discord activity: {} - {} ({})",
@@ -216,19 +243,28 @@ impl RpcClient {
         // Note that in status display for music, the large image text is
         // also shown under the details line
 
+        let large_url = format!("https://minecraft.wiki/w/{}", album.replace(" ", "_"));
         let get_assets = || -> Assets {
-            let assets = Assets::new()
-                .large_image(large_image)
-                .large_text(match playing {
-                    true => dimension_annotation,
-                    false => "Paused",
-                });
+            let mut assets: Assets<'_> =
+                Assets::new()
+                    .large_image(large_image)
+                    .large_text(match playing {
+                        true => dimension_annotation,
+                        false => "Paused",
+                    });
 
-            if small_image.is_empty() {
-                assets
-            } else {
-                assets.small_image(small_image).small_text("From Minecraft")
+            // The aquatic update did not have an official album, as
+            // C418 was only commissioned for some tracks, so we avoid
+            // linking an article for it.
+            if large_image != ASSET_MINECRAFT && large_image != ASSET_ALBUM_AQUATIC {
+                assets = assets.large_url(&large_url);
             }
+
+            if !small_image.is_empty() {
+                assets = assets.small_image(small_image).small_text("from Minecraft");
+            }
+
+            assets
         };
 
         let name = format!("{} - {}", artist, title);
@@ -236,7 +272,7 @@ impl RpcClient {
         let mut activity = Activity::new()
             .activity_type(activity::ActivityType::Listening)
             .status_display_type(StatusDisplayType::Details)
-            .details(name.as_str())
+            .details(&name)
             .state(&album)
             .assets(get_assets());
 

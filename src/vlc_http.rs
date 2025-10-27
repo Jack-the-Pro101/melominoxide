@@ -31,7 +31,7 @@ pub struct Meta {
 }
 
 pub struct VlcHttpClient {
-    client: Client,
+    reqwest_client: Client,
     host: String,
     port: String,
     password: String,
@@ -39,13 +39,13 @@ pub struct VlcHttpClient {
 
 impl VlcHttpClient {
     pub fn new(host: &str, port: u16, password: &str) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(5))
+        let reqwest_client = Client::builder()
+            .timeout(Duration::from_secs(2))
             .build()
             .expect("Failed to build reqwest client");
 
         VlcHttpClient {
-            client,
+            reqwest_client,
             host: host.to_string(),
             port: port.to_string(),
             password: password.to_string(),
@@ -78,6 +78,22 @@ impl VlcHttpClient {
             "qt",
             "--random",
             "--loop",
+            "--audio-filter",
+            "compressor",
+            "--compressor-rms-peak",
+            "0.2",
+            "--compressor-attack",
+            "25.0",
+            "--compressor-release",
+            "101.0",
+            "--compressor-threshold",
+            "-22.4",
+            "--compressor-ratio",
+            "10.0",
+            "--compressor-knee",
+            "4.5",
+            "--compressor-makeup-gain",
+            "7.0",
             playlist_path,
         ];
 
@@ -119,7 +135,7 @@ impl VlcHttpClient {
     pub fn query_status(&self) -> Result<VlcState, Box<dyn std::error::Error>> {
         let url = format!("http://{}:{}/requests/status.json", self.host, self.port);
         let response = self
-            .client
+            .reqwest_client
             .get(&url)
             .basic_auth("", Some(self.password.clone()))
             .send()?;

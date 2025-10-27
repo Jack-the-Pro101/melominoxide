@@ -39,6 +39,7 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("Error querying VLC HTTP: {}", e);
+                discord_rpc.disconnect();
             }
         }
 

@@ -97,8 +97,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "discord-rich-presence"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ead3c5edc7e048c317c6fc4a7e24aff0c7e4c136918e2ba38106a385b2cc53a5"
+source = "git+https://github.com/vionya/discord-rich-presence.git#5a33162b6fb2f68d3e45aa805200a400494f92cf"
 dependencies = [
  "log",
  "serde",
