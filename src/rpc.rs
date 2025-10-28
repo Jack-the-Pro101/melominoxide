@@ -243,7 +243,11 @@ impl RpcClient {
         // Note that in status display for music, the large image text is
         // also shown under the details line
 
-        let large_url = format!("https://minecraft.wiki/w/{}", album.replace(" ", "_"));
+        let large_url = format!(
+            "https://minecraft.wiki/w/{}#:~:text={}",
+            album.replace(" ", "_"),
+            urlencoding::encode(&title)
+        );
         let get_assets = || -> Assets {
             let mut assets: Assets<'_> =
                 Assets::new()
@@ -285,6 +289,11 @@ impl RpcClient {
             false => activity,
         };
 
-        self.client.set_activity(activity).ok();
+        self.client
+            .set_activity(activity)
+            .map_err(|e| {
+                eprintln!("Failed to set Discord activity: {}", e);
+            })
+            .ok();
     }
 }
