@@ -246,7 +246,7 @@ impl RpcClient {
         let large_url = format!(
             "https://minecraft.wiki/w/{}#:~:text={}",
             album.replace(" ", "_"),
-            urlencoding::encode(&title)
+            urlencoding::encode(&filename)
         );
         let get_assets = || -> Assets {
             let mut assets: Assets<'_> =
