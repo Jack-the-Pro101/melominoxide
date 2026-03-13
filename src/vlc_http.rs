@@ -66,6 +66,10 @@ impl VlcHttpClient {
 
         // Start VLC with HTTP interface enabled. Non-blocking spawn.
         let args = [
+            #[cfg(target_os = "linux")]
+            "run",
+            #[cfg(target_os = "linux")]
+            "org.videolan.VLC",
             "--extraintf",
             "http",
             "--http-host",

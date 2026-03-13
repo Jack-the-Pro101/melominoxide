@@ -7,9 +7,17 @@ use std::time::Duration;
 
 use vlc_http::VlcHttpClient;
 
-const PLAYLIST_PATH: &str = "Minecraft OST.xspf";
+const PLAYLIST_PATH: &str = if cfg!(target_os = "linux") {
+    "Minecraft OST linux.xspf"
+} else {
+    "Minecraft OST.xspf"
+};
 
-const VLC_PATH: &str = r"C:\Program Files\VideoLAN\VLC\vlc.exe";
+const VLC_PATH: &str = if cfg!(target_os = "linux") {
+    r"flatpak"
+} else {
+    r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+};
 const VLC_HOST: &str = "localhost";
 const VLC_PORT: u16 = 3103;
 const VLC_PASSWORD: &str = "melominoxide";

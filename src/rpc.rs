@@ -127,20 +127,26 @@ impl RpcClient {
     }
 
     pub fn update_connected(&mut self, attempt_reconnect: bool) {
-        match self.client.send(serde_json::Value::Null, 1) {
+        match self.client.send(serde_json::Value::Null, 3) {
             Ok(_) => {
                 self.connected = true;
             }
-            Err(_) => {
+            Err(e) => {
                 if self.connected {
-                    println!("Lost connection to Discord, will continuously retry");
+                    println!(
+                        "Lost connection to Discord, will continuously retry. Error: {}",
+                        e
+                    );
                 }
 
                 self.connected = false;
                 if attempt_reconnect {
-                    self.connected = match self.client.connect().ok() {
-                        Some(()) => true,
-                        None => false,
+                    self.connected = match self.client.connect() {
+                        Ok(()) => true,
+                        Err(e) => {
+                            eprintln!("Failed to reconnect to Discord: {}", e);
+                            false
+                        }
                     };
 
                     if self.connected {
