@@ -60,7 +60,12 @@ pub fn song_to_dimension(filename: &str) -> Dimension {
         | "yakusoku.ogg"
         | "axolotl.ogg"
         | "dragon_fish.ogg"
-        | "shuniji.ogg" => Dimension::Overworld,
+        | "shuniji.ogg"
+        | "memories.ogg"
+        | "ebb.ogg"
+        | "home.ogg"
+        | "nightly.ogg"
+        | "shores.ogg" => Dimension::Overworld,
 
         // Nether tracks
         "ballad_of_the_cats.ogg"
@@ -95,6 +100,7 @@ pub fn song_to_dimension(filename: &str) -> Dimension {
         | "otherside.ogg"
         | "ward.ogg"
         | "tears.ogg"
+        | "bounce.ogg"
         | "lava_chicken.ogg" => Dimension::Disc,
 
         _ => Dimension::Minecraft,

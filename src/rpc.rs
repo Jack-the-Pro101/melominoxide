@@ -22,6 +22,7 @@ const ASSET_ALBUM_WILD: &str = "vol_wild";
 const ASSET_ALBUM_TRAILS: &str = "vol_trails";
 const ASSET_ALBUM_TRICKY: &str = "vol_tricky";
 const ASSET_ALBUM_CHASE: &str = "vol_chase";
+const ASSET_ALBUM_CUBED: &str = "vol_cubed";
 
 /// Map album to its Discord Rich Presence asset names.
 /// WARNING: `small_image` can be "" (empty) if no small image is desired,
@@ -41,6 +42,7 @@ fn album_to_asset(album: &String) -> (&'static str, &'static str) {
         "Minecraft: Trails & Tales (Original Game Soundtrack)" => ASSET_ALBUM_TRAILS,
         "Minecraft: Tricky Trials (Original Game Soundtrack)" => ASSET_ALBUM_TRICKY,
         "Minecraft: Chase the Skies (Original Game Soundtrack)" => ASSET_ALBUM_CHASE,
+        "Minecraft: Chaos Cubed (Original Game Soundtrack)" => ASSET_ALBUM_CUBED,
         _ => ASSET_MINECRAFT,
     };
 
